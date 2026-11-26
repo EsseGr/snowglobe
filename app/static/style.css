@@ -1,0 +1,38 @@
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1530; color: #eef3ff;
+  font: 16px/1.4 system-ui, sans-serif; overscroll-behavior: none; }
+#stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+.bar { position: fixed; top: 0; left: 0; right: 0; display: flex; justify-content: space-between;
+  align-items: center; padding: calc(8px + env(safe-area-inset-top)) 12px 8px; pointer-events: none; }
+.bar > * { pointer-events: auto; }
+.bar h1 { margin: 0; font-size: 1.1rem; font-weight: 600; }
+
+select, input, button { font: inherit; color: inherit; }
+select, input[type=text], #link { background: #1a2a52; border: 1px solid #34487e; border-radius: 8px; padding: 6px 8px; }
+button { background: #26396b; border: 1px solid #34487e; border-radius: 10px; padding: 10px 14px; cursor: pointer; }
+button.primary { background: #3d6bff; border-color: #3d6bff; font-weight: 600; }
+button:disabled { opacity: .5; cursor: default; }
+
+.panel { position: fixed; left: 0; right: 0; bottom: 0; max-height: 46vh; overflow-y: auto;
+  padding: 12px 14px calc(14px + env(safe-area-inset-bottom)); background: rgba(11, 21, 48, .88);
+  backdrop-filter: blur(8px); border-top: 1px solid #34487e; display: grid; gap: 10px; }
+.panel label { display: grid; grid-template-columns: 1fr 1.4fr; align-items: center; gap: 8px; }
+.panel label.file { grid-template-columns: 1fr; }
+.file span { display: block; text-align: center; background: #26396b; border: 1px dashed #5a73b5;
+  border-radius: 10px; padding: 12px; cursor: pointer; }
+.file input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+input[type=color] { width: 100%; height: 36px; padding: 2px; background: #1a2a52; border: 1px solid #34487e; border-radius: 8px; }
+.result { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
+.status { margin: 0; min-height: 1.4em; font-size: .9rem; opacity: .85; }
+
+.hint { position: fixed; top: calc(52px + env(safe-area-inset-top)); left: 0; right: 0; text-align: center;
+  margin: 0; font-size: .85rem; opacity: .7; pointer-events: none; }
+.floating { position: fixed; top: calc(80px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); }
+
+body.view .panel { display: none; }
+
+@media (min-width: 800px) {
+  .panel { left: auto; top: 56px; right: 16px; bottom: auto; width: 320px; max-height: calc(100vh - 80px);
+    border: 1px solid #34487e; border-radius: 14px; }
+}
