@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="%LANG%">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b1530">
+  <meta name="sg-base" content="%BASE%">
+  <meta name="sg-view" content="%VIEW%">
+  <meta name="sg-lang" content="%LANG%">
+  <title>Snowglobe</title>
+  <link rel="manifest" href="%BASE%/manifest.webmanifest">
+  <link rel="icon" href="%BASE%/static/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="%BASE%/static/style.css">
+</head>
+<body>
+  <canvas id="stage"></canvas>
+
+  <header class="bar">
+    <h1 data-i18n="title">Snowglobe</h1>
+    <select id="lang" aria-label="Language"></select>
+  </header>
+
+  <button id="motion" class="floating" hidden data-i18n="enableMotion"></button>
+  <p id="hint" class="hint" data-i18n="hint"></p>
+
+  <section id="panel" class="panel">
+    <label class="file">
+      <span data-i18n="choosePhoto"></span>
+      <input id="photo" type="file" accept="image/jpeg,image/png,image/webp">
+    </label>
+
+    <label><span data-i18n="shape"></span>
+      <select id="shape">
+        <option value="plaque" data-i18n="shapePlaque"></option>
+        <option value="sphere" data-i18n="shapeSphere"></option>
+      </select>
+    </label>
+
+    <label><span data-i18n="base"></span>
+      <select id="base">
+        <option value="wood" data-i18n="baseWood"></option>
+        <option value="gold" data-i18n="baseGold"></option>
+        <option value="ice" data-i18n="baseIce"></option>
+      </select>
+    </label>
+
+    <label><span data-i18n="snowAmount"></span>
+      <input id="amount" type="range" min="50" max="3000" step="50" value="800">
+    </label>
+    <label><span data-i18n="snowSize"></span>
+      <input id="size" type="range" min="0.3" max="4" step="0.1" value="1">
+    </label>
+    <label><span data-i18n="snowColor"></span>
+      <input id="color" type="color" value="#ffffff">
+    </label>
+
+    <button id="share" class="primary" disabled data-i18n="share"></button>
+    <div id="result" class="result" hidden>
+      <input id="link" readonly>
+      <button id="copy" data-i18n="copy"></button>
+    </div>
+    <p id="status" class="status" role="status"></p>
+  </section>
+
+  <script type="module" src="%BASE%/static/app.js"></script>
+</body>
+</html>
