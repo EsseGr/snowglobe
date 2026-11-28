@@ -105,6 +105,16 @@ class TestStaticSources(unittest.TestCase):
         self.assertIn("hidden", re.search(r'<button id="motion"[^>]*>', read("index.html")).group(0))
         self.assertIn("border-radius: 999px", read("style.css"))
 
+    def test_framing_for_phone_and_portrait_tablet(self):
+        a, g = read("app.js"), read("globe.js")
+        # panel.top limits the globe only for a full-width bottom sheet (375x812), not the 820x1180 side panel
+        self.assertIn('matchMedia("(min-width:800px)")', a)
+        self.assertIn("rect.top > stackBottom", a)
+        self.assertIn("window.innerHeight", a)
+        self.assertIn("MIN_BAND = 200", g)
+        self.assertNotIn("Math.max(yBottom - yTop, 120)", g)
+        self.assertIn("w / h < 0.8", g)  # 820/1180 = 0.69 uses the fitted camera
+
     def test_plaque_has_back_panel(self):
         g = read("globe.js")
         body = g[g.index("buildPhoto()"):g.index("shake(energy)")]

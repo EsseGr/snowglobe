@@ -12,6 +12,7 @@ const BASE_H_SCALE = 0.8;
 const BASE_BOTTOM = BASE_TOP - 0.9 * BASE_H_SCALE;
 const NEAR_FLOOR = FLOOR + MOUND_H + 0.1;  // snow below this may touch the mound
 const FIT_MARGIN = 16;  // px kept free above and below the globe on narrow screens
+const MIN_BAND = 200;   // px; a smaller free band falls back to the full window height
 
 // Glass quality: fps thresholds for the fallback to a plain transparent material.
 const FPS_MIN = 30;
@@ -472,7 +473,8 @@ export class Globe {
       }
       return { spanPx: ((maxY - minY) / 2) * h, halfWPx: maxX * (w / 2), midPx: ((1 - (maxY + minY) / 2) / 2) * h };
     };
-    const availH = Math.max(yBottom - yTop, 120), availW = w - 2 * FIT_MARGIN;
+    if (yBottom - yTop < MIN_BAND) { yTop = FIT_MARGIN; yBottom = h - FIT_MARGIN; } // band too small: use full height
+    const availH = yBottom - yTop, availW = w - 2 * FIT_MARGIN;
     let lo = 4, hi = 40;
     for (let i = 0; i < 30; i++) {
       const mid = (lo + hi) / 2, m = place(mid);
