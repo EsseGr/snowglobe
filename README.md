@@ -14,7 +14,7 @@ python3 app/server.py
 # open http://localhost:8000
 ```
 
-Requires Python 3.8+. Shake works with device motion on phones (iOS shows an "Enable shake" button) and with drag/mouse movement elsewhere. Note that device motion and service workers need HTTPS (or `localhost`).
+Requires Python 3.8+. Shake works with device motion on phones (iOS shows an "Enable shake" button) and with a finger/mouse stirring the snow where you touch elsewhere. Two fingers (or right-button / shift + drag on a desktop) rotate the globe. Note that device motion and service workers need HTTPS (or `localhost`).
 
 ## Configuration (environment variables)
 

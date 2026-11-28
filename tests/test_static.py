@@ -122,6 +122,43 @@ class TestStaticSources(unittest.TestCase):
         self.assertIn("plaque.add(frame, pic, back)", body)
         self.assertNotIn("MeshPhongMaterial({ color: 0xf2e6c9", body)
 
+    def test_snow_constants_and_slow_fall(self):
+        g = read("globe.js")
+        const = lambda n: float(re.search(rf"const {n}\s*=\s*([0-9.]+)", g).group(1))
+        for name in ("SNOW_GRAVITY", "SNOW_DRAG", "FLOW_STRENGTH", "STIR_STRENGTH", "STIR_RADIUS",
+                     "SHAKE_IMPULSE", "FALL_VARIATION"):
+            self.assertLess(g.index(f"const {name}"), g.index("class Globe"))
+        self.assertEqual(const("FALL_VARIATION"), 0.3)
+        fall_time = 2.3 * const("SNOW_DRAG") / const("SNOW_GRAVITY")
+        self.assertTrue(20 <= fall_time <= 30, fall_time)
+
+    def test_snow_current_and_lift(self):
+        g = read("globe.js")
+        body = g[g.index("stepSnow(dt)"):g.index("frame(now)")]
+        for frag in ("FLOW_STRENGTH", "LIFT_SLICE", "LIFT_MIN", "fall[i]", "phase[i]", "stirOn"):
+            self.assertIn(frag, body)
+        self.assertIn("SNOW_GRAVITY", body)
+
+    def test_pointer_stir_one_finger_rotate_two(self):
+        g = read("globe.js")
+        body = g[g.index("  bindPointer(canvas)"):g.index("// Vertical band")]
+        for frag in ("new Map()", "shiftKey", "button === 2", "contextmenu", "preventDefault", "pointers.size >= 2",
+                     "this.stirAt(", "this.spin"):
+            self.assertIn(frag, body)
+        self.assertNotIn("this.shake(", body)
+        stir = g[g.index("  stirAt("):g.index("  bindPointer(canvas)")]
+        self.assertIn("worldToLocal", stir)
+        self.assertIn("unproject", stir)
+
+    def test_shake_stays_global(self):
+        g = read("globe.js")
+        body = g[g.index("  shake(energy)"):g.index("  stirAt(")]
+        self.assertIn("drawRange.count", body)
+        self.assertIn("SHAKE_IMPULSE", body)
+
+    def test_canvas_keeps_touch_action_none(self):
+        self.assertRegex(read("style.css"), r"touch-action:\s*none")
+
     def test_vendor_script_fetches_room_environment(self):
         s = (STATIC.parent.parent / "scripts" / "vendor-three.sh").read_text()
         self.assertIn("RoomEnvironment.js", s)

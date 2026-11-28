@@ -19,6 +19,21 @@ const CREAM = 0xd8c9a6;
 const FIT_MARGIN = 16; // px kept free above and below the globe on narrow screens
 const MIN_BAND = 200;   // px; a smaller free band falls back to the full window height
 
+// Snow behaviour. Fall speed settles at about SNOW_GRAVITY / SNOW_DRAG (u/s); the glass is ~2.3 u of fall.
+const SNOW_GRAVITY = 0.28;   // u/s^2 pulling a flake down
+const SNOW_DRAG = 3;         // 1/s velocity damping ("glycerine")
+const FALL_VARIATION = 0.3;  // each flake falls at 1 +- this of the nominal speed
+const FLOW_STRENGTH = 0.24;  // u/s peak speed of the always-on convection current
+const FLOW_SCALE = 2.1;      // spatial frequency of the current (rad/u)
+const FLOW_DRIFT = 0.11;     // rad/s: how fast the current's pattern evolves
+const LIFT_SLICE = 60;       // resting flakes are tested for lift-off 1/LIFT_SLICE per frame
+const LIFT_MIN = 0.13;       // u/s upward current needed to lift a resting flake
+const WOBBLE = 0.035;        // u/s sideways wobble of each flake
+const STIR_STRENGTH = 1.6;   // u/s^2 push of the finger stir at full finger speed
+const STIR_RADIUS = 0.7;     // u, reach of the finger stir inside the globe
+const STIR_SPEED_REF = 1500; // px/s of finger speed that gives full stir strength
+const SHAKE_IMPULSE = 1.7;   // scales the (global) shake kick to offset the higher drag
+
 // Glass quality: fps thresholds for the fallback to a plain transparent material.
 const FPS_MIN = 30;
 const FPS_WARMUP_MS = 2000;
@@ -298,6 +313,8 @@ export class Globe {
     this.initSnow();
 
     this.shakeEnergy = 0;
+    // Finger stir: position/direction in the group's local space; power decays when the finger slows down.
+    this.stir = { x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0, power: 0 };
     this.spin = 0;
     this.last = performance.now();
     this.perfReset(this.last);
@@ -338,10 +355,15 @@ export class Globe {
     this.pos = new Float32Array(MAX_SNOW * 3);
     this.vel = new Float32Array(MAX_SNOW * 3);
     const sizes = new Float32Array(MAX_SNOW);
+    this.fall = new Float32Array(MAX_SNOW);   // per-flake fall speed factor
+    this.phase = new Float32Array(MAX_SNOW);  // per-flake wobble phase
+    this.liftAt = 0;
     for (let i = 0; i < MAX_SNOW; i++) {
       const p = this.randomInside();
       this.pos.set(p, i * 3);
       sizes[i] = 0.5 + Math.random() * 1.1;
+      this.fall[i] = 1 + (Math.random() * 2 - 1) * FALL_VARIATION;
+      this.phase[i] = Math.random() * Math.PI * 2;
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(this.pos, 3));
@@ -473,26 +495,76 @@ export class Globe {
     const n = this.points.geometry.drawRange.count;
     for (let i = 0; i < n; i++) {
       const k = i * 3;
-      this.vel[k] += (Math.random() - 0.5) * 4 * energy;
-      this.vel[k + 1] += (Math.random() * 3 + 0.5) * energy;
-      this.vel[k + 2] += (Math.random() - 0.5) * 4 * energy;
+      this.vel[k] += (Math.random() - 0.5) * 4 * energy * SHAKE_IMPULSE;
+      this.vel[k + 1] += (Math.random() * 3 + 0.5) * energy * SHAKE_IMPULSE;
+      this.vel[k + 2] += (Math.random() - 0.5) * 4 * energy * SHAKE_IMPULSE;
     }
   }
 
+  // Stir the snow where the finger is: project the screen point into the globe (middle of the chord
+  // where the camera ray crosses the glass) and aim a local vortex along the finger's motion.
+  stirAt(clientX, clientY, dx, dy, speed) {
+    const rect = this.canvas.getBoundingClientRect();
+    const ndcX = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const ndcY = -(((clientY - rect.top) / rect.height) * 2 - 1);
+    this.camera.updateMatrixWorld();
+    this.group.updateMatrixWorld();
+    const o = this.camera.position.clone();
+    const d = new THREE.Vector3(ndcX, ndcY, 0.5).unproject(this.camera).sub(o).normalize();
+    const c = this.group.getWorldPosition(new THREE.Vector3());
+    const oc = o.clone().sub(c);
+    const b = oc.dot(d), disc = b * b - (oc.dot(oc) - R * R);
+    // Ray misses the glass: aim at the closest point of the ray to the centre, pulled inside.
+    const tMid = -b;
+    const hit = o.clone().addScaledVector(d, tMid);
+    const off = hit.clone().sub(c);
+    if (disc < 0 && off.length() > R * 0.9) hit.copy(c).addScaledVector(off.normalize(), R * 0.9);
+    this.group.worldToLocal(hit);
+    const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 0);
+    const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrixWorld, 1);
+    const dir = right.multiplyScalar(dx).addScaledVector(up, -dy);
+    dir.applyQuaternion(this.group.quaternion.clone().invert());
+    if (dir.lengthSq() > 0) dir.normalize();
+    const s = this.stir;
+    s.x = hit.x; s.y = hit.y; s.z = hit.z;
+    s.dx = dir.x; s.dy = dir.y; s.dz = dir.z;
+    s.power = Math.max(s.power, Math.min(speed / STIR_SPEED_REF, 1.5) * STIR_STRENGTH);
+  }
+
+  // One pointer stirs the snow under it; two fingers (or right button / shift + drag) rotate the globe.
   bindPointer(canvas) {
-    let down = false, lx = 0, ly = 0;
-    canvas.addEventListener("pointerdown", (e) => { down = true; lx = e.clientX; ly = e.clientY; canvas.setPointerCapture(e.pointerId); });
-    const end = () => { down = false; };
+    const pointers = new Map();
+    let rx = 0, ry = 0;  // reference point of the rotation (centroid of the pointers)
+    const centroid = () => {
+      let x = 0, y = 0;
+      for (const p of pointers.values()) { x += p.x; y += p.y; }
+      return [x / pointers.size, y / pointers.size];
+    };
+    const rotating = () => pointers.size >= 2 || [...pointers.values()].some((p) => p.rotate);
+    const reset = () => { if (pointers.size) [rx, ry] = centroid(); };
+    canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+    canvas.addEventListener("pointerdown", (e) => {
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, t: e.timeStamp, rotate: e.button === 2 || e.shiftKey });
+      canvas.setPointerCapture(e.pointerId);
+      reset();
+    });
+    const end = (e) => { pointers.delete(e.pointerId); reset(); };
     canvas.addEventListener("pointerup", end);
     canvas.addEventListener("pointercancel", end);
     canvas.addEventListener("pointermove", (e) => {
-      if (!down) return;
-      const dx = e.clientX - lx, dy = e.clientY - ly;
-      lx = e.clientX; ly = e.clientY;
-      this.spin += dx * 0.01;
-      this.group.rotation.x = Math.max(-0.5, Math.min(0.5, this.group.rotation.x + dy * 0.005));
-      const speed = Math.hypot(dx, dy);
-      if (speed > 12) this.shake(Math.min(speed / 40, 1.5));
+      const p = pointers.get(e.pointerId);
+      if (!p) return;
+      const dx = e.clientX - p.x, dy = e.clientY - p.y;
+      const dt = Math.max(e.timeStamp - p.t, 1);
+      p.x = e.clientX; p.y = e.clientY; p.t = e.timeStamp;
+      if (rotating()) {
+        const [cx, cy] = centroid();
+        this.spin += (cx - rx) * 0.01;
+        this.group.rotation.x = Math.max(-0.5, Math.min(0.5, this.group.rotation.x + (cy - ry) * 0.005));
+        rx = cx; ry = cy;
+      } else if (dx || dy) {
+        this.stirAt(e.clientX, e.clientY, dx, dy, Math.hypot(dx, dy) / dt * 1000);
+      }
     });
   }
 
@@ -549,17 +621,57 @@ export class Globe {
 
   stepSnow(dt) {
     const n = this.points.geometry.drawRange.count;
-    const drag = Math.exp(-1.8 * dt);
+    const drag = Math.exp(-SNOW_DRAG * dt), pull = 1 - drag;
     const t = performance.now() * 0.001;
-    const p = this.pos, v = this.vel;
+    const p = this.pos, v = this.vel, fall = this.fall, phase = this.phase;
+    // Convection current: two counter-rotating cells (divergence-free), pattern drifting with time.
+    const f1 = t * FLOW_DRIFT, f2 = t * FLOW_DRIFT * 0.77 + 1.3, s = FLOW_SCALE;
+    const st = this.stir;
+    const stirOn = st.power > 0.02;
+    const sr2 = STIR_RADIUS * STIR_RADIUS;
+    const lift = (i) => {  // wake a resting flake just above the snow
+      const k = i * 3;
+      p[k + 1] = mound(p[k], p[k + 2]) + 0.02;
+      v[k + 1] = 0.02;
+    };
+    // Slowly sweep the resting flakes and lift those that sit in a strong updraught.
+    const m = Math.min(n, MAX_SNOW);
+    const slice = Math.ceil(m / LIFT_SLICE);
+    for (let j = 0; j < slice; j++) {
+      const i = (this.liftAt + j) % m, k = i * 3;
+      if (v[k] !== 0 || v[k + 1] !== 0 || v[k + 2] !== 0 || p[k + 1] >= NEAR_FLOOR) continue;
+      const a = s * p[k] + 0.8 * p[k + 2] + f1, b = s * p[k + 1] + f2;
+      if (-FLOW_STRENGTH * Math.cos(a) * Math.sin(b) > LIFT_MIN) lift(i);
+    }
+    this.liftAt = (this.liftAt + slice) % m;
     for (let i = 0; i < n; i++) {
       const k = i * 3;
       const near = p[k + 1] < NEAR_FLOOR;
-      if (near && v[k] === 0 && v[k + 1] === 0 && v[k + 2] === 0 && p[k + 1] <= mound(p[k], p[k + 2])) continue;
-      v[k + 1] -= 1.1 * dt;
-      v[k] = v[k] * drag + Math.sin(t * 1.3 + i) * 0.02 * dt * 60;
-      v[k + 1] *= drag;
-      v[k + 2] = v[k + 2] * drag + Math.cos(t * 1.1 + i * 1.7) * 0.02 * dt * 60;
+      const resting = near && v[k] === 0 && v[k + 1] === 0 && v[k + 2] === 0 && p[k + 1] <= mound(p[k], p[k + 2]);
+      let sx = 0, sy = 0, sz = 0;
+      if (stirOn) {
+        const ox = p[k] - st.x, oy = p[k + 1] - st.y, oz = p[k + 2] - st.z;
+        const d2 = ox * ox + oy * oy + oz * oz;
+        if (d2 < sr2) {
+          const w = (1 - Math.sqrt(d2) / STIR_RADIUS) * st.power;
+          // push along the finger's motion plus a swirl (dir x offset) around it
+          sx = (st.dx + (st.dy * oz - st.dz * oy) * 2) * w;
+          sy = (st.dy + (st.dz * ox - st.dx * oz) * 2) * w;
+          sz = (st.dz + (st.dx * oy - st.dy * ox) * 2) * w;
+          if (resting) { lift(i); sy += w; }
+        }
+      }
+      if (resting && !(sx || sy || sz)) continue;
+      const a = s * p[k] + 0.8 * p[k + 2] + f1, b = s * p[k + 1] + f2;
+      const fy = fall[i];
+      const flowX = FLOW_STRENGTH * Math.sin(a) * Math.cos(b);
+      const flowY = -FLOW_STRENGTH * Math.cos(a) * Math.sin(b);
+      const flowZ = 0.5 * FLOW_STRENGTH * Math.sin(s * p[k + 2] + f1 + p[k + 1]);
+      const ang = t * (0.9 + 0.5 * fy) + phase[i];
+      v[k + 1] -= SNOW_GRAVITY * fy * dt;
+      v[k] = v[k] * drag + (flowX + Math.sin(ang) * WOBBLE) * pull + sx * dt;
+      v[k + 1] = v[k + 1] * drag + flowY * pull + sy * dt;
+      v[k + 2] = v[k + 2] * drag + (flowZ + Math.cos(ang) * WOBBLE) * pull + sz * dt;
       p[k] += v[k] * dt; p[k + 1] += v[k + 1] * dt; p[k + 2] += v[k + 2] * dt;
       if (p[k + 1] < NEAR_FLOOR) {
         const g = mound(p[k], p[k + 2]);
@@ -570,11 +682,12 @@ export class Globe {
       }
       const r = Math.hypot(p[k], p[k + 1], p[k + 2]), lim = R - 0.08;
       if (r > lim) {
-        const s = lim / r;
-        p[k] *= s; p[k + 1] *= s; p[k + 2] *= s;
+        const sc = lim / r;
+        p[k] *= sc; p[k + 1] *= sc; p[k + 2] *= sc;
         v[k] *= -0.3; v[k + 1] *= -0.3; v[k + 2] *= -0.3;
       }
     }
+    st.power *= Math.exp(-5 * dt);
     this.points.geometry.attributes.position.needsUpdate = true;
   }
 
