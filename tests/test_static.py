@@ -76,8 +76,41 @@ class TestStaticSources(unittest.TestCase):
     def test_service_worker_and_css(self):
         sw = read("sw.js")
         self.assertIn("/static/vendor/RoomEnvironment.js", sw)
-        self.assertIn('"snowglobe-v2"', sw)
+        self.assertIn('"snowglobe-v3"', sw)
         self.assertIn("38vh", read("style.css"))
+
+    def test_hidden_attribute_wins_over_display_rules(self):
+        css = re.sub(r"\s+", " ", read("style.css"))
+        self.assertIn("[hidden] { display: none !important; }", css)
+
+    def test_snow_visible_on_light_background(self):
+        g = read("globe.js")
+        self.assertIn("rgba(80,90,110,0.35)", g)
+        self.assertEqual(g.count("0.065"), 2)
+        self.assertIn("#cfcac2", g)
+        self.assertIn("#e6e3de", g)
+
+    def test_mound_and_base_dimensions(self):
+        g = read("globe.js")
+        const = lambda n: float(re.search(rf"const {n}\s*=\s*([0-9.]+)", g).group(1))
+        self.assertGreaterEqual(const("MOUND_H"), 0.3)
+        self.assertLessEqual(const("BASE_MAX_R"), 1.05 * const("R"))
+        self.assertLessEqual(const("BASE_H_SCALE"), 0.8)
+
+    def test_motion_pill_only_with_request_permission(self):
+        a = read("app.js")
+        self.assertEqual(a.count("motionBtn.hidden = false"), 1)
+        branch = a.index("DeviceMotionEvent.requestPermission === \"function\"")
+        self.assertLess(branch, a.index("motionBtn.hidden = false"))
+        self.assertIn("hidden", re.search(r'<button id="motion"[^>]*>', read("index.html")).group(0))
+        self.assertIn("border-radius: 999px", read("style.css"))
+
+    def test_plaque_has_back_panel(self):
+        g = read("globe.js")
+        body = g[g.index("buildPhoto()"):g.index("shake(energy)")]
+        self.assertIn("back.rotation.y = Math.PI", body)
+        self.assertIn("plaque.add(frame, pic, back)", body)
+        self.assertNotIn("MeshPhongMaterial({ color: 0xf2e6c9", body)
 
     def test_vendor_script_fetches_room_environment(self):
         s = (STATIC.parent.parent / "scripts" / "vendor-three.sh").read_text()

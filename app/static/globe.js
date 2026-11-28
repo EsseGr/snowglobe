@@ -5,9 +5,13 @@ const R = 1.5;          // glass radius
 const FLOOR = -1.05;    // y of the snow bed (flat edge of the mound)
 const MAX_SNOW = 3000;
 const MOUND_R = 1.05;   // radius of the snow mound
-const MOUND_H = 0.19;   // height of the mound at its centre
+const MOUND_H = 0.35;   // height of the mound at its centre
 const BASE_TOP = FLOOR - 0.1;
-const BASE_BOTTOM = -2.05;
+const BASE_MAX_R = 1.57;  // widest point of the base (1.05 x glass diameter / 2)
+const BASE_H_SCALE = 0.8;
+const BASE_BOTTOM = BASE_TOP - 0.9 * BASE_H_SCALE;
+const NEAR_FLOOR = FLOOR + MOUND_H + 0.1;  // snow below this may touch the mound
+const FIT_MARGIN = 16;  // px kept free above and below the globe on narrow screens
 
 // Glass quality: fps thresholds for the fallback to a plain transparent material.
 const FPS_MIN = 30;
@@ -23,12 +27,16 @@ function canvas2d(w, h) {
 }
 
 function dotTexture() {
-  const [c, g] = canvas2d(32, 32);
-  const grad = g.createRadialGradient(16, 16, 0, 16, 16, 16);
+  // White flake with a soft grey outline so it stays visible on light backgrounds.
+  const [c, g] = canvas2d(64, 64);
+  const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
   grad.addColorStop(0, "rgba(255,255,255,1)");
-  grad.addColorStop(1, "rgba(255,255,255,0)");
+  grad.addColorStop(0.5, "rgba(255,255,255,1)");
+  grad.addColorStop(0.64, "rgba(80,90,110,0.35)");
+  grad.addColorStop(0.82, "rgba(80,90,110,0.18)");
+  grad.addColorStop(1, "rgba(80,90,110,0)");
   g.fillStyle = grad;
-  g.fillRect(0, 0, 32, 32);
+  g.fillRect(0, 0, 64, 64);
   return new THREE.CanvasTexture(c);
 }
 
@@ -120,10 +128,14 @@ const BASES = {
 };
 
 // Lathe profiles (r, y), ascending along the outside, small chamfers/bevels on the edges.
+// Authored for a base 1.82 wide; scaled so the widest point is BASE_MAX_R and the height is BASE_H_SCALE.
+const BASE_SRC_R = 1.82;
+const scaleBase = (pts) => pts.map(([r, y]) =>
+  [r * (BASE_MAX_R / BASE_SRC_R), BASE_TOP + (y - BASE_TOP) * BASE_H_SCALE]);
 const PROFILES = {
-  collar: [[1.2, -1.4], [1.38, -1.4], [1.42, -1.36], [1.42, -1.19], [1.38, BASE_TOP], [1.2, BASE_TOP]],
-  body: [[0, -1.85], [1.7, -1.85], [1.62, -1.75], [1.48, -1.45], [1.25, -1.4], [1.2, -1.36], [1.18, BASE_TOP], [0, BASE_TOP]],
-  foot: [[0, BASE_BOTTOM], [1.76, BASE_BOTTOM], [1.82, -2.0], [1.82, -1.9], [1.76, -1.85], [0, -1.85]],
+  collar: scaleBase([[1.2, -1.4], [1.38, -1.4], [1.42, -1.36], [1.42, -1.19], [1.38, BASE_TOP], [1.2, BASE_TOP]]),
+  body: scaleBase([[0, -1.85], [1.7, -1.85], [1.62, -1.75], [1.48, -1.45], [1.25, -1.4], [1.2, -1.36], [1.18, BASE_TOP], [0, BASE_TOP]]),
+  foot: scaleBase([[0, -2.05], [1.76, -2.05], [1.82, -2.0], [1.82, -1.9], [1.76, -1.85], [0, -1.85]]),
 };
 
 function latheFrom(points) {
@@ -151,8 +163,8 @@ function valueNoise(x, z) {
 function mound(x, z) {
   const k = 1 - (x * x + z * z) / (MOUND_R * MOUND_R);
   if (k <= 0) return FLOOR;
-  const q = Math.sqrt(k);
-  return FLOOR + MOUND_H * q + 0.06 * (valueNoise(x * 3, z * 3) - 0.5) * q;
+  // k^1.5: a round hill with zero slope at the rim; the noise fades out with k.
+  return FLOOR + MOUND_H * k * Math.sqrt(k) + 0.06 * (valueNoise(x * 3, z * 3) - 0.5) * k;
 }
 
 function moundGeometry() {
@@ -164,12 +176,12 @@ function moundGeometry() {
 }
 
 function backgroundTexture() {
-  const [c, g] = canvas2d(4, 256);
-  const grad = g.createLinearGradient(0, 0, 0, 256);
-  grad.addColorStop(0, "#eceff4");
-  grad.addColorStop(1, "#b8bec9");
+  const [c, g] = canvas2d(256, 256);
+  const grad = g.createRadialGradient(128, 128, 0, 128, 128, 181);
+  grad.addColorStop(0, "#cfcac2");
+  grad.addColorStop(1, "#e6e3de");
   g.fillStyle = grad;
-  g.fillRect(0, 0, 4, 256);
+  g.fillRect(0, 0, 256, 256);
   return srgb(new THREE.CanvasTexture(c));
 }
 
@@ -226,7 +238,7 @@ export class Globe {
     this.group = new THREE.Group();
     this.scene.add(this.group);
 
-    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(5.2, 5.2),
+    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 4.6),
       new THREE.MeshBasicMaterial({ map: shadowTexture(), transparent: true, depthWrite: false, toneMapped: false }));
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = BASE_BOTTOM + 0.005;
@@ -307,7 +319,7 @@ export class Globe {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(this.pos, 3));
     geo.setAttribute("aSize", new THREE.BufferAttribute(sizes, 1));
-    this.snowMat = new THREE.PointsMaterial({ size: 0.05, map: dotTexture(), transparent: true,
+    this.snowMat = new THREE.PointsMaterial({ size: 0.065, map: dotTexture(), transparent: true,
       depthWrite: false, sizeAttenuation: true });
     this.snowMat.onBeforeCompile = (shader) => {
       shader.vertexShader = "attribute float aSize;\n" + shader.vertexShader.replace(
@@ -331,7 +343,7 @@ export class Globe {
 
   setSnow({ amount, size, color }) {
     this.points.geometry.setDrawRange(0, Math.min(amount, MAX_SNOW));
-    this.snowMat.size = 0.05 * size;
+    this.snowMat.size = 0.065 * size;
     this.snowMat.color.set(color);
     this.snowMat.needsUpdate = true;
   }
@@ -369,19 +381,25 @@ export class Globe {
     const aspect = img && img.width && img.height ? img.width / img.height : 1;
     // toneMapped:false keeps the photo's colours as uploaded (ACES would wash them out).
     const mat = new THREE.MeshBasicMaterial({ map: this.texture, toneMapped: false });
+    const top = mound(0, 0);  // the figure stands on the crest of the snow mound
     if (this.shape === "sphere") {
       this.photoMesh = new THREE.Mesh(new THREE.SphereGeometry(0.75, 48, 32), mat);
-      this.photoMesh.position.y = 0.1;
+      this.photoMesh.position.y = top + 0.75 - 0.1;
     } else {
       const w = aspect >= 1 ? 1.7 : 1.3 * aspect;
       const h = aspect >= 1 ? 1.7 / aspect : 1.3;
       const plaque = new THREE.Group();
       const pic = new THREE.Mesh(new THREE.PlaneGeometry(w, h), mat);
       pic.position.z = 0.03;
+      // Standard material (not Phong) so the frame picks up the environment map from behind too.
       const frame = new THREE.Mesh(new THREE.BoxGeometry(w + 0.12, h + 0.12, 0.05),
-        new THREE.MeshPhongMaterial({ color: 0xf2e6c9, shininess: 60 }));
-      plaque.add(frame, pic);
-      plaque.position.y = 0.1;
+        new THREE.MeshStandardMaterial({ color: 0xf2e6c9, roughness: 0.6, metalness: 0 }));
+      const back = new THREE.Mesh(new THREE.PlaneGeometry(w + 0.08, h + 0.08),
+        new THREE.MeshStandardMaterial({ color: 0xd8c9a6, roughness: 0.9, metalness: 0 }));
+      back.rotation.y = Math.PI;
+      back.position.z = -0.026;
+      plaque.add(frame, pic, back);
+      plaque.position.y = top - 0.03 + (h + 0.12) / 2;
       this.photoMesh = plaque;
     }
     this.group.add(this.photoMesh);
@@ -415,25 +433,54 @@ export class Globe {
     });
   }
 
+  // Vertical band (px) of the window free for the globe; set by the page layout (title, hint, panel).
   resize() {
     const w = window.innerWidth, h = window.innerHeight;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
     this.camera.fov = 40;
+    this.camera.clearViewOffset();
     if (w / h < 0.8) {
-      // Mobile: fit the globe + base (about 3.8 x 4.4 units) in the top 60% of the screen,
-      // centred at ~30% from the top.
-      const t = Math.tan((this.camera.fov * Math.PI) / 360);
-      const d = Math.max(4.4 / (0.6 * 2 * t), 3.8 / (2 * t * this.camera.aspect));
-      this.camera.position.set(0, 0.8, d);
-      this.camera.lookAt(0, -0.3, 0);
-      this.camera.setViewOffset(w, h, 0, 0.2 * h, w, h);
+      const { top, bottom } = this.insets ? this.insets() : { top: 90, bottom: 0.62 * h };
+      this.fitCamera(w, h, top + FIT_MARGIN, bottom - FIT_MARGIN);
     } else {
-      this.camera.clearViewOffset();
       this.camera.position.set(0, 0.3, 7.5);
       this.camera.lookAt(0, 0, 0);
     }
     this.camera.updateProjectionMatrix();
+  }
+
+  // Narrow screens: find the camera distance at which the glass + base fit between yTop and yBottom (px),
+  // projecting the real extreme points so perspective is accounted for, then shift the view into the band.
+  fitCamera(w, h, yTop, yBottom) {
+    const cam = this.camera, v = new THREE.Vector3();
+    const pts = [];
+    for (let i = 0; i < 64; i++) {
+      const a = (i / 64) * Math.PI * 2;
+      pts.push([0, R * Math.sin(a), R * Math.cos(a)], [R * Math.cos(a), 0, R * Math.sin(a)]);
+      pts.push([BASE_MAX_R * Math.cos(a), BASE_BOTTOM, BASE_MAX_R * Math.sin(a)]);
+    }
+    const place = (d) => {
+      cam.position.set(0, 0.8, d);
+      cam.lookAt(0, -0.2, 0);
+      cam.updateMatrixWorld();
+      cam.updateProjectionMatrix();
+      let minY = Infinity, maxY = -Infinity, maxX = 0;
+      for (const [x, y, z] of pts) {
+        v.set(x, y, z).project(cam);
+        minY = Math.min(minY, v.y); maxY = Math.max(maxY, v.y); maxX = Math.max(maxX, Math.abs(v.x));
+      }
+      return { spanPx: ((maxY - minY) / 2) * h, halfWPx: maxX * (w / 2), midPx: ((1 - (maxY + minY) / 2) / 2) * h };
+    };
+    const availH = Math.max(yBottom - yTop, 120), availW = w - 2 * FIT_MARGIN;
+    let lo = 4, hi = 40;
+    for (let i = 0; i < 30; i++) {
+      const mid = (lo + hi) / 2, m = place(mid);
+      if (m.spanPx <= availH && m.halfWPx * 2 <= availW) hi = mid; else lo = mid;
+    }
+    const m = place(hi);
+    // Positive offset moves the picture up on screen.
+    cam.setViewOffset(w, h, 0, m.midPx - (yTop + availH / 2), w, h);
   }
 
   stepSnow(dt) {
@@ -443,14 +490,14 @@ export class Globe {
     const p = this.pos, v = this.vel;
     for (let i = 0; i < n; i++) {
       const k = i * 3;
-      const near = p[k + 1] < FLOOR + 0.3;
+      const near = p[k + 1] < NEAR_FLOOR;
       if (near && v[k] === 0 && v[k + 1] === 0 && v[k + 2] === 0 && p[k + 1] <= mound(p[k], p[k + 2])) continue;
       v[k + 1] -= 1.1 * dt;
       v[k] = v[k] * drag + Math.sin(t * 1.3 + i) * 0.02 * dt * 60;
       v[k + 1] *= drag;
       v[k + 2] = v[k + 2] * drag + Math.cos(t * 1.1 + i * 1.7) * 0.02 * dt * 60;
       p[k] += v[k] * dt; p[k + 1] += v[k + 1] * dt; p[k + 2] += v[k + 2] * dt;
-      if (p[k + 1] < FLOOR + 0.3) {
+      if (p[k + 1] < NEAR_FLOOR) {
         const g = mound(p[k], p[k + 2]);
         if (p[k + 1] <= g) {
           p[k + 1] = g - Math.random() * 0.02;

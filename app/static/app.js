@@ -35,6 +35,21 @@ if (!webglOk()) {
 
 const globe = new Globe($("stage"));
 
+// Free band for the globe on narrow screens: below the title/hint/motion pill, above the panel.
+globe.insets = () => {
+  const panel = $("panel");
+  const panelShown = getComputedStyle(panel).display !== "none";
+  return {
+    top: $("stack").getBoundingClientRect().bottom,
+    bottom: panelShown ? panel.getBoundingClientRect().top : window.innerHeight,
+  };
+};
+if (typeof ResizeObserver !== "undefined") {
+  const ro = new ResizeObserver(() => globe.resize());
+  ro.observe($("stack"));
+  ro.observe($("panel"));
+}
+
 // ---- shake sensors -------------------------------------------------------
 function startMotion() {
   let last = 0;
