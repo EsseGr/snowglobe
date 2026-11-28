@@ -1,7 +1,9 @@
 // Caches the static app shell. API and photos always go to the network.
-const CACHE = "snowglobe-v3";
+// The MediaPipe runtime/model (/static/vendor/mediapipe/) is not precached: the fetch handler
+// below stores it on demand, the first time a cut-out is requested.
+const CACHE = "snowglobe-v4";
 const BASE = "%BASE%";
-const SHELL = ["/static/style.css", "/static/app.js", "/static/globe.js", "/static/i18n.js",
+const SHELL = ["/static/style.css", "/static/app.js", "/static/globe.js", "/static/i18n.js", "/static/segment.js",
   "/static/vendor/three.module.min.js", "/static/vendor/RoomEnvironment.js", "/static/icon.svg"].map((p) => BASE + p);
 
 self.addEventListener("install", (e) => {

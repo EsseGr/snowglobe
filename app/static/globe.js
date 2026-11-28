@@ -11,7 +11,12 @@ const BASE_MAX_R = 1.57;  // widest point of the base (1.05 x glass diameter / 2
 const BASE_H_SCALE = 0.8;
 const BASE_BOTTOM = BASE_TOP - 0.9 * BASE_H_SCALE;
 const NEAR_FLOOR = FLOOR + MOUND_H + 0.1;  // snow below this may touch the mound
-const FIT_MARGIN = 16;  // px kept free above and below the globe on narrow screens
+const CUT_H = 0.55 * 2 * R;  // cut-out figures: ~55% of the inside height of the glass
+const CUT_MAX_W = 2.2;        // widest figure that still fits inside the glass at shoulder height
+const CUT_SINK = 0.08;        // feet are sunk this far into the snow
+const CUT_LAYER = 0.016;      // spacing of the thickness layers
+const CREAM = 0xd8c9a6;
+const FIT_MARGIN = 16; // px kept free above and below the globe on narrow screens
 const MIN_BAND = 200;   // px; a smaller free band falls back to the full window height
 
 // Glass quality: fps thresholds for the fallback to a plain transparent material.
@@ -197,6 +202,26 @@ function shadowTexture() {
   return new THREE.CanvasTexture(c);
 }
 
+// Same shape as the photo's alpha, filled with a flat colour (sides and back of a cut-out figure).
+function silhouetteTexture(img, w, h) {
+  const [c, g] = canvas2d(w, h);
+  g.drawImage(img, 0, 0, w, h);
+  g.globalCompositeOperation = "source-in";
+  g.fillStyle = "#" + CREAM.toString(16);
+  g.fillRect(0, 0, w, h);
+  return srgb(new THREE.CanvasTexture(c));
+}
+
+// Soft contact shadow draped over the snow mound (vertices follow the terrain).
+function contactShadowGeometry(width, depth, z) {
+  const geo = new THREE.PlaneGeometry(width, depth, 24, 8);
+  geo.rotateX(-Math.PI / 2);
+  const p = geo.attributes.position;
+  for (let i = 0; i < p.count; i++) p.setY(i, mound(p.getX(i), p.getZ(i) + z) + 0.012);
+  geo.translate(0, 0, z);
+  return geo;
+}
+
 function physicalGlass() {
   return new THREE.MeshPhysicalMaterial({ color: 0xffffff, transmission: 1, ior: 1.5, thickness: 0.2,
     roughness: 0.05, clearcoat: 1, side: THREE.FrontSide, depthWrite: false });
@@ -239,8 +264,9 @@ export class Globe {
     this.group = new THREE.Group();
     this.scene.add(this.group);
 
+    this.shadowTex = shadowTexture();
     const shadow = new THREE.Mesh(new THREE.PlaneGeometry(4.6, 4.6),
-      new THREE.MeshBasicMaterial({ map: shadowTexture(), transparent: true, depthWrite: false, toneMapped: false }));
+      new THREE.MeshBasicMaterial({ map: this.shadowTex, transparent: true, depthWrite: false, toneMapped: false }));
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = BASE_BOTTOM + 0.005;
     this.group.add(shadow);
@@ -359,7 +385,7 @@ export class Globe {
   }
 
   setShape(shape) {
-    this.shape = shape === "sphere" ? "sphere" : "plaque";
+    this.shape = shape === "sphere" || shape === "cutout" ? shape : "plaque";
     this.buildPhoto();
   }
 
@@ -377,9 +403,15 @@ export class Globe {
       this.photoMesh.material && this.photoMesh.material.dispose();
       this.photoMesh = null;
     }
+    if (this.silTex) { this.silTex.dispose(); this.silTex = null; }
     if (!this.texture) return;
     const img = this.texture.image;
     const aspect = img && img.width && img.height ? img.width / img.height : 1;
+    if (this.shape === "cutout") {
+      this.photoMesh = this.buildCutout(img, aspect);
+      this.group.add(this.photoMesh);
+      return;
+    }
     // toneMapped:false keeps the photo's colours as uploaded (ACES would wash them out).
     const mat = new THREE.MeshBasicMaterial({ map: this.texture, toneMapped: false });
     const top = mound(0, 0);  // the figure stands on the crest of the snow mound
@@ -404,6 +436,36 @@ export class Globe {
       this.photoMesh = plaque;
     }
     this.group.add(this.photoMesh);
+  }
+
+  // A flat figure with a little thickness: photo layer in front, cream silhouette layers behind it
+  // (so the back of the figure is a plain cream cut-out), feet sunk into the snow, soft shadow on the mound.
+  buildCutout(img, aspect) {
+    const h = Math.min(CUT_H, CUT_MAX_W / aspect), w = h * aspect;
+    const bottom = mound(0, 0) - CUT_SINK, cy = bottom + h / 2;
+    const tex = this.texture;
+    // Mipmaps would bleed the transparent pixels' colour into the edges.
+    if (tex.generateMipmaps || tex.minFilter !== THREE.LinearFilter) {
+      tex.generateMipmaps = false; tex.minFilter = THREE.LinearFilter; tex.needsUpdate = true;
+    }
+    const cut = { alphaTest: 0.5, alphaToCoverage: true };
+    this.silTex = silhouetteTexture(img, Math.max(1, img.width || 256), Math.max(1, img.height || 256));
+    this.silTex.generateMipmaps = false; this.silTex.minFilter = THREE.LinearFilter;
+    const cream = () => new THREE.MeshStandardMaterial({ map: this.silTex, roughness: 0.9, metalness: 0,
+      side: THREE.DoubleSide, ...cut });
+    const geo = () => new THREE.PlaneGeometry(w, h);
+    const front = new THREE.Mesh(geo(), new THREE.MeshBasicMaterial({ map: tex, toneMapped: false, ...cut }));
+    front.position.set(0, cy, CUT_LAYER);
+    const mid = new THREE.Mesh(geo(), cream());
+    mid.position.set(0, cy, 0);
+    const back = new THREE.Mesh(geo(), cream());
+    back.position.set(0, cy, -CUT_LAYER);
+    const shadow = new THREE.Mesh(contactShadowGeometry(Math.min(w * 1.1, 2 * MOUND_R), 0.55, 0.04),
+      new THREE.MeshBasicMaterial({ map: this.shadowTex, transparent: true, depthWrite: false, toneMapped: false,
+        polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    const fig = new THREE.Group();
+    fig.add(shadow, back, mid, front);
+    return fig;
   }
 
   shake(energy) {
