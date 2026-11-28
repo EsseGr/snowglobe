@@ -664,9 +664,12 @@ export class Globe {
       if (resting && !(sx || sy || sz)) continue;
       const a = s * p[k] + 0.8 * p[k + 2] + f1, b = s * p[k + 1] + f2;
       const fy = fall[i];
-      const flowX = FLOW_STRENGTH * Math.sin(a) * Math.cos(b);
-      const flowY = -FLOW_STRENGTH * Math.cos(a) * Math.sin(b);
-      const flowZ = 0.5 * FLOW_STRENGTH * Math.sin(s * p[k + 2] + f1 + p[k + 1]);
+      // the current fades out over the last 0.3 u before the glass so it does not pin flakes to the wall
+      const fade = Math.max(0, Math.min(1, (R - 0.08 - Math.hypot(p[k], p[k + 1], p[k + 2])) / 0.3));
+      const amp = FLOW_STRENGTH * fade;
+      const flowX = amp * Math.sin(a) * Math.cos(b);
+      const flowY = -amp * Math.cos(a) * Math.sin(b);
+      const flowZ = 0.5 * amp * Math.sin(s * p[k] + p[k + 1] + f1);  // independent of z, so the current stays divergence-free
       const ang = t * (0.9 + 0.5 * fy) + phase[i];
       v[k + 1] -= SNOW_GRAVITY * fy * dt;
       v[k] = v[k] * drag + (flowX + Math.sin(ang) * WOBBLE) * pull + sx * dt;
@@ -684,7 +687,10 @@ export class Globe {
       if (r > lim) {
         const sc = lim / r;
         p[k] *= sc; p[k + 1] *= sc; p[k + 2] *= sc;
-        v[k] *= -0.3; v[k + 1] *= -0.3; v[k + 2] *= -0.3;
+        // drop only the outward radial velocity so flakes slide along the glass instead of sticking
+        const nx = p[k] / lim, ny = p[k + 1] / lim, nz = p[k + 2] / lim;
+        const vr = v[k] * nx + v[k + 1] * ny + v[k + 2] * nz;
+        if (vr > 0) { v[k] -= vr * nx; v[k + 1] -= vr * ny; v[k + 2] -= vr * nz; }
       }
     }
     st.power *= Math.exp(-5 * dt);
