@@ -76,7 +76,7 @@ class TestStaticSources(unittest.TestCase):
     def test_service_worker_and_css(self):
         sw = read("sw.js")
         self.assertIn("/static/vendor/RoomEnvironment.js", sw)
-        self.assertIn('"snowglobe-v3"', sw)
+        self.assertIn('"snowglobe-v4"', sw)  # bumped from v3: the shell now includes segment.js and the cut-out shape
         self.assertIn("38vh", read("style.css"))
 
     def test_hidden_attribute_wins_over_display_rules(self):

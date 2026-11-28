@@ -35,7 +35,7 @@ COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 BASE_RE = re.compile(r"^(/[A-Za-z0-9._~-]+)*$")
 LANG_RE = re.compile(r"^[a-z]{2,3}$")
 
-SHAPES = ("plaque", "sphere")
+SHAPES = ("plaque", "sphere", "cutout")
 BASES = ("wood", "gold", "ice")
 DEFAULT_CONFIG = {
     "shape": "plaque",
@@ -43,6 +43,9 @@ DEFAULT_CONFIG = {
     "snow": {"amount": 800, "size": 1.0, "color": "#ffffff"},
 }
 TEMPLATED = {"index.html", "manifest.webmanifest", "sw.js"}
+VENDOR_MEDIAPIPE = STATIC_DIR / "vendor" / "mediapipe"  # pinned, versioned files: safe to cache forever
+STATIC_TYPES = {".wasm": "application/wasm", ".tflite": "application/octet-stream"}
+STREAM_CHUNK = 64 * 1024
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -52,7 +55,7 @@ SECURITY_HEADERS = {
     "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     "Content-Security-Policy": (
         "default-src 'self'; img-src 'self' blob: data:; style-src 'self'; "
-        "script-src 'self'; connect-src 'self'; worker-src 'self'; "
+        "script-src 'self' 'wasm-unsafe-eval'; connect-src 'self'; worker-src 'self'; "
         "manifest-src 'self'; object-src 'none'; base-uri 'self'; "
         "form-action 'self'; frame-ancestors 'none'"
     ),
@@ -72,6 +75,38 @@ def sniff_image(data):
     if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
         return "image/webp", "webp"
     return None
+
+
+def has_alpha(data, mime):
+    """True if a PNG/WebP declares transparency. Header parsing only, nothing is decoded."""
+    if mime == "image/png":
+        if len(data) < 33 or data[12:16] != b"IHDR":
+            return False
+        if data[25] in (4, 6):  # grey+alpha, RGBA
+            return True
+        pos = 8
+        while pos + 8 <= len(data):
+            length, kind = int.from_bytes(data[pos:pos + 4], "big"), data[pos + 4:pos + 8]
+            if kind == b"tRNS":
+                return True
+            if kind in (b"IDAT", b"IEND"):  # tRNS must precede the image data
+                return False
+            pos += 12 + length
+        return False
+    if mime == "image/webp":
+        pos = 12
+        while pos + 8 <= len(data):
+            kind, size = data[pos:pos + 4], int.from_bytes(data[pos + 4:pos + 8], "little")
+            body = data[pos + 8:pos + 8 + size]
+            if kind == b"VP8X":
+                return len(body) >= 1 and bool(body[0] & 0x10)
+            if kind == b"VP8L":
+                return len(body) >= 5 and body[0] == 0x2F and bool(int.from_bytes(body[1:5], "little") >> 28 & 1)
+            if kind == b"VP8 ":
+                return False
+            pos += 8 + size + (size & 1)
+        return False
+    return False
 
 
 def validate_config(raw):
@@ -271,10 +306,39 @@ class Handler(BaseHTTPRequestHandler):
             return self.error(404, "not found")
         if not target.is_file():
             return self.error(404, "not found")
-        ctype = mimetypes.guess_type(target.name)[0] or "application/octet-stream"
+        ctype = STATIC_TYPES.get(target.suffix) or mimetypes.guess_type(target.name)[0] or "application/octet-stream"
         if target.suffix in (".js", ".mjs"):
             ctype = "text/javascript"
-        self.send_bytes(200, target.read_bytes(), ctype, {"Cache-Control": "no-cache"})
+        try:
+            target.relative_to(VENDOR_MEDIAPIPE)
+        except ValueError:
+            return self.send_bytes(200, target.read_bytes(), ctype, {"Cache-Control": "no-cache"})
+        self.stream_file(target, ctype, {"Cache-Control": "public, max-age=31536000, immutable"})
+
+    def stream_file(self, path, ctype, extra):
+        """Large files: send in chunks with Content-Length instead of loading them into memory."""
+        with path.open("rb") as f:
+            size = os.fstat(f.fileno()).st_size
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Content-Length", str(size))
+            for k, v in {**SECURITY_HEADERS, **extra}.items():
+                self.send_header(k, v)
+            self.end_headers()
+            if self.command == "HEAD":
+                return
+            left = size
+            while left > 0:
+                chunk = f.read(min(STREAM_CHUNK, left))
+                if not chunk:
+                    self.close_connection = True  # file shrank mid-transfer
+                    return
+                try:
+                    self.wfile.write(chunk)
+                except (BrokenPipeError, ConnectionResetError):  # client went away
+                    self.close_connection = True
+                    return
+                left -= len(chunk)
 
     def serve_template(self, name, view_id, extra=None):
         text = (STATIC_DIR / name).read_text(encoding="utf-8")
@@ -319,6 +383,8 @@ class Handler(BaseHTTPRequestHandler):
         sniffed = sniff_image(body)
         if not sniffed or sniffed[0] != ctype:
             return self.error(415, "file content does not match an allowed image type")
+        if config["shape"] == "cutout" and not has_alpha(body, sniffed[0]):
+            return self.error(415, "cutout needs a PNG or WebP with transparency")
         gid = self.server.store.create(body, sniffed[0], sniffed[1], config)
         if gid is None:
             return self.error(507, "storage limit reached")
