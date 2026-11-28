@@ -4,7 +4,7 @@ export const LANGS = {
   el: {
     _name: "Ελληνικά",
     title: "Χιονόμπαλα",
-    hint: "Ανακίνησε το κινητό ή σύρε με το δάχτυλο/ποντίκι",
+    hint: "Ανακίνησε το κινητό ή ανακάτεψε το χιόνι με το δάχτυλο · δύο δάχτυλα για περιστροφή",
     enableMotion: "Ενεργοποίηση ανακίνησης",
     choosePhoto: "Επιλογή φωτογραφίας",
     shape: "Σχήμα",
@@ -35,7 +35,7 @@ export const LANGS = {
   en: {
     _name: "English",
     title: "Snowglobe",
-    hint: "Shake your phone, or drag with finger/mouse",
+    hint: "Shake your phone, or stir the snow with a finger · two fingers to rotate",
     enableMotion: "Enable shake",
     choosePhoto: "Choose a photo",
     shape: "Shape",
