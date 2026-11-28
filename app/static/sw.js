@@ -1,5 +1,5 @@
 // Caches the static app shell. API and photos always go to the network.
-const CACHE = "snowglobe-v2";
+const CACHE = "snowglobe-v3";
 const BASE = "%BASE%";
 const SHELL = ["/static/style.css", "/static/app.js", "/static/globe.js", "/static/i18n.js",
   "/static/vendor/three.module.min.js", "/static/vendor/RoomEnvironment.js", "/static/icon.svg"].map((p) => BASE + p);

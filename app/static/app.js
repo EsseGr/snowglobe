@@ -35,6 +35,22 @@ if (!webglOk()) {
 
 const globe = new Globe($("stage"));
 
+// Free band for the globe on narrow screens: below the title/hint/motion pill, above the panel.
+globe.insets = () => {
+  const panel = $("panel");
+  const stackBottom = $("stack").getBoundingClientRect().bottom;
+  const rect = panel.getBoundingClientRect();
+  const panelShown = getComputedStyle(panel).display !== "none";
+  // Only a full-width bottom sheet limits the globe; the side panel (>=800px wide) does not.
+  const bottomSheet = panelShown && !window.matchMedia("(min-width:800px)").matches && rect.top > stackBottom;
+  return { top: stackBottom, bottom: bottomSheet ? rect.top : window.innerHeight };
+};
+if (typeof ResizeObserver !== "undefined") {
+  const ro = new ResizeObserver(() => globe.resize());
+  ro.observe($("stack"));
+  ro.observe($("panel"));
+}
+
 // ---- shake sensors -------------------------------------------------------
 function startMotion() {
   let last = 0;
