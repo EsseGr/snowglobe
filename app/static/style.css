@@ -1,5 +1,5 @@
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1530; color: #eef3ff;
+html, body { margin: 0; height: 100%; overflow: hidden; background: #dfe3ea; color: #1b2438;
   font: 16px/1.4 system-ui, sans-serif; overscroll-behavior: none; }
 #stage { position: fixed; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
 
@@ -8,14 +8,14 @@ html, body { margin: 0; height: 100%; overflow: hidden; background: #0b1530; col
 .bar > * { pointer-events: auto; }
 .bar h1 { margin: 0; font-size: 1.1rem; font-weight: 600; }
 
-select, input, button { font: inherit; color: inherit; }
+select, input, button { font: inherit; color: #eef3ff; }
 select, input[type=text], #link { background: #1a2a52; border: 1px solid #34487e; border-radius: 8px; padding: 6px 8px; }
 button { background: #26396b; border: 1px solid #34487e; border-radius: 10px; padding: 10px 14px; cursor: pointer; }
 button.primary { background: #3d6bff; border-color: #3d6bff; font-weight: 600; }
 button:disabled { opacity: .5; cursor: default; }
 
-.panel { position: fixed; left: 0; right: 0; bottom: 0; max-height: 46vh; overflow-y: auto;
-  padding: 12px 14px calc(14px + env(safe-area-inset-bottom)); background: rgba(11, 21, 48, .88);
+.panel { position: fixed; left: 0; right: 0; bottom: 0; max-height: 38vh; overflow-y: auto;
+  padding: 12px 14px calc(14px + env(safe-area-inset-bottom)); color: #eef3ff; background: rgba(11, 21, 48, .88);
   backdrop-filter: blur(8px); border-top: 1px solid #34487e; display: grid; gap: 10px; }
 .panel label { display: grid; grid-template-columns: 1fr 1.4fr; align-items: center; gap: 8px; }
 .panel label.file { grid-template-columns: 1fr; }
@@ -27,7 +27,7 @@ input[type=color] { width: 100%; height: 36px; padding: 2px; background: #1a2a52
 .status { margin: 0; min-height: 1.4em; font-size: .9rem; opacity: .85; }
 
 .hint { position: fixed; top: calc(52px + env(safe-area-inset-top)); left: 0; right: 0; text-align: center;
-  margin: 0; font-size: .85rem; opacity: .7; pointer-events: none; }
+  margin: 0; font-size: .85rem; opacity: .7; color: #1b2438; pointer-events: none; }
 .floating { position: fixed; top: calc(80px + env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); }
 
 body.view .panel { display: none; }
